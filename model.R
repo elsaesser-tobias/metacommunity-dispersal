@@ -4,7 +4,11 @@ library(deSolve);
 library(simecol);
 library(OCNet);
 library(reticulate);
+library(readxl);
+library(pls);
 
+library(openxlsx);
+library(dplyr);
 
 #clear enviroment
 rm(list = ls())
@@ -16,6 +20,15 @@ b <- 13
 start_time <- Sys.time()
 #set random seed for reproducibility
 set.seed(b)
+
+#set landscape distribution
+urban_landscape_percent <- 0.01
+forest_landscape_percent <- 0.59
+agriculture_landscape_percent <- 0.4
+
+if(urban_landscape_percent + forest_landscape_percent + agriculture_landscape_percent != 1){
+  stop("Not 100% of landscape assigned")
+}
 
 #in step one the OCN will be generated, habitats and migration routes will be calclulated
 #the second step will then be the ODE model of the metacommunity
@@ -31,9 +44,9 @@ number_of_stream_points <- (OCN_size * OCN_size) * percentage_of_stream_points
 percentage_habitat_points <- 0.02
 
 
-#create the optimal channel network
-OCN <- create_OCN(OCN_size, OCN_size, outletPos = 1, cellsize = cellsz)
-OCN <- landscape_OCN(OCN)
+#create the optimal channel network -------------------------------------------------------
+OCN <- create_OCN(OCN_size, OCN_size, outletPos = OCN_size / 2, cellsize = cellsz)
+OCN <- landscape_OCN(OCN, zMin = 50000)
 
 #calculate thresholds
 threshold <- find_area_threshold_OCN(OCN)
@@ -48,17 +61,18 @@ for(i in 1:length(threshold$nNodesRN)){
 }
 
 #aggregate OCN to reduce stream cells, use river network (RN) information from aggregated OCN
-OCN <- aggregate_OCN(landscape_OCN(OCN), thrA = threshold_area)
+OCN <- aggregate_OCN(landscape_OCN(OCN, zMin = 50000), thrA = threshold_area)
 
 
 
 #problem: no stream order for each RN node
 #get AG-stream order to RN where available
-RNSO <- 0
+RNSO <- c()
+
 for(i in 1:length(OCN$AG$toRN)){
   RNSO[OCN$AG$toRN[i]] <- OCN$AG$streamOrder[i]
 }
-
+#RNSO[which(OCN$RN$downNode == 0)] <- max(RNSO)
 #fill the rest through downstream node
 #not well optimized but works
 
@@ -66,12 +80,14 @@ for(i in 1:length(OCN$AG$toRN)){
 #the streamorder of the node itself is then filled with the one above
 #this works because at AG level all changes in stream order are accounted for
 for(j in 1:length(OCN$RN$downNode)){
-  for(i in 2:length(OCN$RN$downNode)){
-    if(is.na(RNSO[i]) == FALSE & is.na(RNSO[OCN$RN$downNode[i]])){
+  for(i in 1:length(OCN$RN$downNode)){
+    if(is.na(RNSO[i]) == FALSE && is.na(RNSO[OCN$RN$downNode[i]]) && OCN$RN$downNode[i] != 0){
       RNSO[OCN$RN$downNode[i]] <- RNSO[i]
     }
   }
 }
+#Problem: outlet ist na, deshalb stoppt es nicht?
+
 
 
 RNX <- OCN$RN$X
@@ -79,7 +95,7 @@ RNY <- OCN$RN$Y
 RNDN <- OCN$RN$downNode
 
 
-#add habitats
+#add habitats ----------------------------------------------------------
 nhabitats <- round(length(RNX) * percentage_habitat_points)
 set.seed(b)
 habitat_points <- sample(1:length(RNX), nhabitats)
@@ -89,7 +105,7 @@ habitatsy <- RNY[habitat_points]
 
 
 
-#export relevant data to files, so that they can be read by the python script
+#export relevant data to files, so that they can be read by the python script -------------------------------
 write.table(RNX, "x_points.txt", row.names = FALSE, col.names = FALSE)
 write.table(RNY, "y_points.txt", row.names = FALSE, col.names = FALSE)
 write.table(RNSO, "SO.txt", row.names = FALSE, col.names = FALSE)
@@ -99,35 +115,175 @@ write.table(cellsz, "py_cellsz.txt", row.names = FALSE, col.names = FALSE)
 write.table(habitatsx, "habitatsx.txt", row.names = FALSE, col.names = FALSE)
 write.table(habitatsy, "habitatsy.txt", row.names = FALSE, col.names = FALSE)
 
+write.table(urban_landscape_percent, "urban_landscape_percent.txt", row.names = FALSE, col.names = FALSE)
+write.table(forest_landscape_percent, "forest_landscape_percent.txt", row.names = FALSE, col.names = FALSE)
+write.table(agriculture_landscape_percent, "agriculture_landscape_percent.txt", row.names = FALSE, col.names = FALSE)
 
 
 
 
-#In the python script the landscape matrix gets create, the stream is drawn on top of it
+#In the python script the landscape matrix gets create, the stream is drawn on top of it----------------------------
 #and the best dispersal pathways are determined and the cost is calculated.
 #For details check the python script "create_matrix.py".
 py_run_file("create_matrix.py")
+
+
+
 image(py$nlmElement, useRaster=TRUE, axes=FALSE, col =gray(0:255/255))
 
 
-draw_simple_OCN(OCN)
-mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "red50")
-points(RNX[habitat_points], RNY[habitat_points], pch = 21, col = "blue", bg = mycol, cex = 5)
-for(i in 1:length(py$startx)){
-     x_plot <- c(py$startx[i],py$aimx[i])
-     y_plot <- c(py$starty[i],py$aimy[i])
-     lines(x_plot,y_plot)
-   }
+alt <- matrix(OCN$FD$Z, nrow = 100, ncol = 100)
+alt <- alt / 250
+expanded_alt <- kronecker(alt, matrix(1, nrow = 100, ncol = 100))
+dim(expanded_alt)
 
 
+
+# image(py$nlmElement, useRaster=TRUE, axes=FALSE, col =gray(0:255/255))
+# image(expanded_alt, useRaster=TRUE, axes=FALSE, col =gray(0:255/255))
+# 
+# write.csv(expanded_alt, file = "alt.csv")
+# write.csv(py$nlmElement, file = "landscape.csv")
+
+
+#Zonenhistogramm
+
+
+
+
+#x coordinate, y coordinate, radius
+count_landscape <- function(mat, x, y, r, landscape_type){
+  x <- x + 3000
+  y <- y + 3000
+  
+  
+  # Create a matrix of distances from the center
+  distances <- sqrt((row(mat) - x)^2 + (col(mat) - y)^2)
+  
+  # Select elements within the circular region
+  circle_elements <- mat[distances <= r]
+  
+  # Print the elements within the circular region
+  #print(circle_elements)
+  if(landscape_type == "stream"){return(sum(circle_elements == 0.1))}
+  
+  if(landscape_type == "agriculture"){return(sum(circle_elements == 0.5))}
+  
+  if(landscape_type == "forrest"){return(sum(circle_elements == 0.75))}
+  
+  if(landscape_type == "urban"){return(sum(circle_elements == 1))}
+  
+}
+
+start_time <- Sys.time()
+
+urban_radius <- 3000
+agriculture_radius <- 750
+forrest_radius <- 1000
+
+urban_sums <- c()
+agriculture_sums <- c()
+forrest_sums <- c()
+altitudes <- c()
+
+for(i in 1:length(habitatsx)){
+  urban_sums[i] <- count_landscape(py$nlmElement_orig, habitatsx[i],habitatsy[i], urban_radius, "urban")
+  agriculture_sums[i] <- count_landscape(py$nlmElement_orig, habitatsx[i],habitatsy[i], agriculture_radius, "agriculture")
+  forrest_sums[i] <- count_landscape(py$nlmElement_orig, habitatsx[i],habitatsy[i], forrest_radius, "forrest")
+  altitudes[i] <- expanded_alt[habitatsx[i],habitatsy[i]]
+}
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+
+
+habitat_df <- data.frame(urban3000m.m2 = urban_sums, agriculture750m.m2 = agriculture_sums, forest1000m.m2 = forrest_sums, 
+                         alt = altitudes)
+
+#                     Rhine Valley Pesticides 2022                          #
+#                   Ken Mauser, PhD Project - SystemLink                    #
+#                                                                           #
+#                 Build prediction maps Tobias                              #
+#                                                                           #
+#:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::#
+
+
+# preparation -----------------------------------------------------------------
+
+
+# import data ------------------------------------------------------------------
+
+
+histo_cat <- read_excel("histo_cat.xlsx")
+veg <- read_excel("veg.xls")
+
+# change format ----------------------------------------------------------------
+
+
+histo_cat$agriculture750m.m2 <- histo_cat$agriculture750m*100
+histo_cat$forest1000m.m2 <- histo_cat$forest1000m*100
+histo_cat$urban3000m.m2 <- histo_cat$forest3000m*100
+
+## join histogram data with measurement points ---------------------------------
+
+icol <- c("agriculture750m.m2", "forest1000m.m2", "urban3000m.m2", "sample_number")
+
+veg <- left_join(x = veg, y = histo_cat[,icol], by = "sample_number")
+
+# prediction Tobias ------------------------------------------------------------
+
+
+set.seed(1)
+
+pcr1 <- pcr(num ~ alt + 
+              forest1000m.m2 +
+              urban3000m.m2 +
+              agriculture750m.m2,
+            data = veg[veg$borderdistance > 3000,], scale = T, validation = "CV")
+
+
+# pcr1 <- lm(num ~ alt + 
+#               forest1000m.m2 +
+#               urban3000m.m2 +
+#               agriculture750m.m2,
+#             data = veg[veg$borderdistance > 3000,])
+
+
+summary(pcr1)
+plot(pcr1)
+validationplot(object = pcr1, val.type = "R2")
+
+max(R2(pcr1)[[1]])
+
+pred1 <- predict(pcr1, newdata = habitat_df, ncomp = 1)
+
+
+summary(pred1)
+
+predhabitat <- habitat_df
+
+predhabitat$prediction <- as.vector(pred1)
+
+
+#----------------------------------------------------------------------------------
+
+
+
+# draw_simple_OCN(OCN)
+# mycol <- rgb(0, 0, 255, max = 255, alpha = 125, names = "red50")
+# points(RNX[habitat_points], RNY[habitat_points], pch = 21, col = "blue", bg = mycol, cex = 5)
+# for(i in 1:length(py$startx)){
+#      x_plot <- c(py$startx[i],py$aimx[i])
+#      y_plot <- c(py$starty[i],py$aimy[i])
+#      lines(x_plot,y_plot)
+#    }
 
 
 
 #step 2: preparations for the ODE model start here
-
-
 #set up starting states:
-#which / how many habitats should be occupied by what species at the start
+#which / how many habitats should be occupied by what species at the start -------------------------------------
 percentage_Pred1 <- 0.5
 percentage_Pred2 <- 0.5
 percentage_Prey1 <- 0.5
@@ -184,7 +340,7 @@ for(i in 1:length(Prey2_spots)){
 
 
 
-#create names for all the habitat spots
+#create names for all the habitat spots ---------------------------------------------------
 habitat_names <- c()
 for(i in 1:length(habitatsx)){
   habitat_names[i] <- paste("X", habitatsx[i], "Y", habitatsy[i], sep = "")
@@ -198,32 +354,33 @@ for(i in 1:length(py$startx)){
 }
 
 
-#set the parameters for the model
-parameters <- c(aPrey1 = 10.5,
-                aPrey2 = 1.5,
-                aPred1 = 5.75,
-                aPred2 = 0.75,
+#set the parameters for the model -----------------------------------------------------
+parameters <- c(aPred1 = 1.75,
+                aPred2 = 2.75,
                 capacity_resource = 10,
                 resource_growth_speed = 100,
-                hPrey1 = 0.0001,
-                hPrey2 = 0.01,
                 hPred1 = 0.01,
-                hPred2 = 0.1,
-                mPrey1 = 0.52,
-                mPrey2 = 0.12,
-                mPred1 = 0.4,
-                mPred2 = 0.2,
+                hPred2 = 0.01,
+                mPred1 = 0.5,
+                mPred2 = 0.5,
                 modPred1 = 0.05,
                 modPred2 = 0.05,
                 modPrey1 = 0.05,
                 modPrey2 = 0.05,
+                prey1_growth_speed = 100,
+                prey2_growth_speed = 100,
+                capacity_prey1 = 10,
+                capacity_prey2 = 10,
                 n_loc = length(habitatsx))
 
 
 
+
+
+#create dispersal matrix D----------------------------------------------------------------------------
+
 migration_percent <- 0.4
 n_habitat_connections <- c()
-#create dispersal matrix D
 D <- matrix(0, nrow = length(habitatsx),ncol = length(habitatsx))
 for(i in 1:length(aim_names)){
     
@@ -238,7 +395,8 @@ for(i in 1:length(aim_names)){
 diag(D) <- - rowSums(D)
 n_habitat_connections[is.na(n_habitat_connections)] <- 0
 
-#set up the ODEs as vector system
+#set up the ODEs as vector system-----------------------------------------------------------------------
+
 ODE_functions<-function(t, state, parameters) {
   #state[state<0] = 0
   with(as.list(parameters),{
@@ -247,7 +405,7 @@ ODE_functions<-function(t, state, parameters) {
   Pred2 <- state[(n_loc+1):(2*n_loc)]
   Prey1 <- state[(2*n_loc+1):(3*n_loc)]
   Prey2 <- state[(3*n_loc +1):(4*n_loc)]
-  Res <- state[(4*n_loc+1):(5*n_loc)]
+
   
   
   dPred1 <- (((aPred1 * Pred1 * Prey1) / (1 + aPred1 * hPred1 * Prey1)) +
@@ -258,27 +416,22 @@ ODE_functions<-function(t, state, parameters) {
               ((aPred2 * Pred2 * Prey2) / (1 + aPred2 * hPred2 * Prey2))) * modPred1 -
               Pred2 * mPred2  + D %*% Pred2
   
-  dPrey1 <- ((aPrey1 * Prey1 * Res) / (1 + aPrey1 * hPrey1 * Res)) * modPrey1 -
+  
+  dPrey1 <- prey1_growth_speed * (capacity_prey1 - Prey1) -
     ((aPred1 * Pred1 * Prey1) / (1 + aPred1 * hPred1 * Prey1)) - 
-    ((aPred2 * Pred2 * Prey1) / (1 + aPred2 * hPred2 * Prey1)) - 
-    Prey1 * mPrey1 + D %*% Prey1
+    ((aPred2 * Pred2 * Prey1) / (1 + aPred2 * hPred2 * Prey1))
   
-  dPrey2 <- ((aPrey2 * Prey2 * Res) / (1 + aPrey2 * hPrey2 * Res)) * modPrey2 -
+  dPrey2 <- prey2_growth_speed * (capacity_prey2 - Prey2) -
     ((aPred1 * Pred1 * Prey2) / (1 + aPred1 * hPred1 * Prey2)) - 
-    ((aPred2 * Pred2 * Prey2) / (1 + aPred2 * hPred2 * Prey2)) - 
-    Prey2 * mPrey2 + D %*% Prey2
-  
-  dRes <- resource_growth_speed * (capacity_resource - Res) -
-    ((aPrey1 * Prey1 * Res) / (1 + aPrey1 * hPrey1 * Res)) - 
-    ((aPrey2 * Prey2 * Res) / (1 + aPrey2 * hPrey2 * Res))
+    ((aPred2 * Pred2 * Prey2) / (1 + aPred2 * hPred2 * Prey2))
 
-  return(list(c(dPred1,dPred2,dPrey1,dPrey2,dRes)))
+  return(list(c(dPred1,dPred2,dPrey1,dPrey2)))
       })
   
 }
   
 
-initial_state <- c(Pred1_spots, Pred2_spots, Prey1_spots, Prey2_spots, res_spots)
+initial_state <- c(Pred1_spots, Pred2_spots, Prey1_spots, Prey2_spots)
 
 times <- seq(0, 20, by = 0.1)
 
@@ -313,24 +466,22 @@ result <- list()
 #sort results by habitat
 for(i in 1:length(habitatsx)){
   result[[paste("habitat", i, sep = "")]][["time"]] <- out[,1]
-  for(j in 0:4){
+  for(j in 0:3){
     if(j == 0)
     result[[paste("habitat", i, sep = "")]][["Pred1"]] <- out[,j*20 + i + 1]
     if(j == 1)
       result[[paste("habitat", i, sep = "")]][["Pred2"]] <- out[,j*20 + i + 1]
     if(j == 2)
-      result[[paste("habitat", i, sep = "")]][["Pray1"]] <- out[,j*20 + i + 1]
+      result[[paste("habitat", i, sep = "")]][["Prey1"]] <- out[,j*20 + i + 1]
     if(j == 3)
-      result[[paste("habitat", i, sep = "")]][["Pray2"]] <- out[,j*20 + i + 1]
-    if(j == 4)
-      result[[paste("habitat", i, sep = "")]][["Res"]] <- out[,j*20 + i + 1]
+      result[[paste("habitat", i, sep = "")]][["Prey2"]] <- out[,j*20 + i + 1]
   }
 }
 
 
 
 
-#create a function to easily plot each habitat
+#create a function to easily plot each habitat----------------------------------------
 plot_habitat <- function(x){
 habitat_data <- as.data.frame(result[[paste("habitat", x, sep = "")]])
 
@@ -341,21 +492,20 @@ res_color = "green"
 ggplot(habitat_data, aes(x = time)) +
   geom_line(aes(y = Pred1, linetype = "Pred1", color = "Pred")) +
   geom_line(aes(y = Pred2, linetype = "Pred2", color = "Pred")) +
-  geom_line(aes(y = Pray1, linetype = "Pray1", color = "Pray")) +
-  geom_line(aes(y = Pray2, linetype = "Pray2", color = "Pray")) +
-  geom_line(aes(y = Res, linetype = "Res", color = "Res")) +
+  geom_line(aes(y = Prey1, linetype = "Prey1", color = "Prey")) +
+  geom_line(aes(y = Prey2, linetype = "Prey2", color = "Prey")) +
   labs(title = paste("Habitat ", x, " Data", ", Number of connections to other habitats: ", 
                      n_habitat_connections[x], sep = ""),
        x = "Time",
        y = "Species Density",
        linetype = "Variable") +
-  scale_linetype_manual(values = c("Pred1" = "solid", "Pred2" = "dashed", "Pray1" = "solid",
-                                   "Pray2" = "dashed", "Res" = "solid")) +
+  scale_linetype_manual(values = c("Pred1" = "solid", "Pred2" = "dashed", "Prey1" = "solid",
+                                   "Prey2" = "dashed")) +
   scale_color_manual(values = c(Pred = pred_color, Pray = pray_color, Res = res_color)) +
   theme_minimal()
 }
 
-plot_habitat(2)
+plot_habitat(20)
 #use plot_habitat(x) to plot habitat x
 
 
@@ -364,5 +514,5 @@ plot_habitat(2)
 end_time <- Sys.time()
 print(end_time - start_time)
 
-
+#checken ob Prozentuale Verteilung richtig ist
 
