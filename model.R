@@ -15,16 +15,16 @@ rm(list = ls())
 setwd("C:/Users/elsae/Documents/R_Model")
 
 #b will later be used to set different random seeds in each loop
-b <- 13
+b <- 14
 #track time
 start_time <- Sys.time()
 #set random seed for reproducibility
 set.seed(b)
 
 #set landscape distribution
-urban_landscape_percent <- 0.01
-forest_landscape_percent <- 0.59
-agriculture_landscape_percent <- 0.4
+urban_landscape_percent <- 0.8
+forest_landscape_percent <- 0.1
+agriculture_landscape_percent <- 0.1
 
 if(urban_landscape_percent + forest_landscape_percent + agriculture_landscape_percent != 1){
   stop("Not 100% of landscape assigned")
@@ -265,7 +265,7 @@ predhabitat <- habitat_df
 
 predhabitat$prediction <- as.vector(pred1)
 
-
+habitat_quality <- 100 / predhabitat$prediction
 #----------------------------------------------------------------------------------
 
 
@@ -304,37 +304,37 @@ Prey2_spots <- runif(length(habitatsx))
 
 for(i in 1:length(Pred1_spots)){
   if(Pred1_spots[i] <= percentage_Pred1){
-    Pred1_spots[i] <- 1
+    Pred1_spots[i] <- 20
   }
   else{
-    Pred1_spots[i] <- 0.001
+    Pred1_spots[i] <- 0
   }
 }
 
 for(i in 1:length(Pred2_spots)){
   if(Pred2_spots[i] <= percentage_Pred2){
-    Pred2_spots[i] <- 1
+    Pred2_spots[i] <- 20
   }
   else{
-    Pred2_spots[i] <- 0.001
+    Pred2_spots[i] <- 0
   }
 }
 
 for(i in 1:length(Prey1_spots)){
   if(Prey1_spots[i] <= percentage_Prey1){
-    Prey1_spots[i] <- 1
+    Prey1_spots[i] <- 20
   }
   else{
-    Prey1_spots[i] <- 0.001
+    Prey1_spots[i] <- 0
   }
 }
 
 for(i in 1:length(Prey2_spots)){
   if(Prey2_spots[i] <= percentage_Prey2){
-    Prey2_spots[i] <- 1
+    Prey2_spots[i] <- 20
   }
   else{
-    Prey2_spots[i] <- 0.001
+    Prey2_spots[i] <- 0
   }
 }
 
@@ -355,22 +355,18 @@ for(i in 1:length(py$startx)){
 
 
 #set the parameters for the model -----------------------------------------------------
-parameters <- c(aPred1 = 1.75,
-                aPred2 = 2.75,
-                capacity_resource = 10,
-                resource_growth_speed = 100,
-                hPred1 = 0.01,
-                hPred2 = 0.01,
-                mPred1 = 0.5,
-                mPred2 = 0.5,
-                modPred1 = 0.05,
-                modPred2 = 0.05,
-                modPrey1 = 0.05,
-                modPrey2 = 0.05,
-                prey1_growth_speed = 100,
-                prey2_growth_speed = 100,
-                capacity_prey1 = 10,
-                capacity_prey2 = 10,
+parameters <- c(aPred1 = 0.00444,
+                aPred2 = 0.00444,
+                hPred1 = 0.0192,
+                hPred2 = 0.0192,
+                mPred1 = 0.11,
+                mPred2 = 0.1,
+                modPred1 = 1,
+                modPred2 = 1,
+                prey1_growth_speed = 0.005,
+                prey2_growth_speed = 0.005,
+                capacity_prey1 = 50,
+                capacity_prey2 = 50,
                 n_loc = length(habitatsx))
 
 
@@ -417,11 +413,11 @@ ODE_functions<-function(t, state, parameters) {
               Pred2 * mPred2  + D %*% Pred2
   
   
-  dPrey1 <- prey1_growth_speed * (capacity_prey1 - Prey1) -
+  dPrey1 <- prey1_growth_speed * (habitat_quality * capacity_prey1 - Prey1) -
     ((aPred1 * Pred1 * Prey1) / (1 + aPred1 * hPred1 * Prey1)) - 
     ((aPred2 * Pred2 * Prey1) / (1 + aPred2 * hPred2 * Prey1))
   
-  dPrey2 <- prey2_growth_speed * (capacity_prey2 - Prey2) -
+  dPrey2 <- prey2_growth_speed * (habitat_quality * capacity_prey1 - Prey2) -
     ((aPred1 * Pred1 * Prey2) / (1 + aPred1 * hPred1 * Prey2)) - 
     ((aPred2 * Pred2 * Prey2) / (1 + aPred2 * hPred2 * Prey2))
 
@@ -433,7 +429,7 @@ ODE_functions<-function(t, state, parameters) {
 
 initial_state <- c(Pred1_spots, Pred2_spots, Prey1_spots, Prey2_spots)
 
-times <- seq(0, 20, by = 0.1)
+times <- seq(0, 100, by = 0.1)
 
 out <- lsoda(y = initial_state, times = times, func = ODE_functions, parms = parameters, 
              rtol = 1e-12, atol = 1e-12, maxsteps = 10000)
@@ -487,7 +483,7 @@ habitat_data <- as.data.frame(result[[paste("habitat", x, sep = "")]])
 
 pred_color = "red"
 pray_color = "blue"
-res_color = "green"
+
 
 ggplot(habitat_data, aes(x = time)) +
   geom_line(aes(y = Pred1, linetype = "Pred1", color = "Pred")) +
@@ -501,11 +497,11 @@ ggplot(habitat_data, aes(x = time)) +
        linetype = "Variable") +
   scale_linetype_manual(values = c("Pred1" = "solid", "Pred2" = "dashed", "Prey1" = "solid",
                                    "Prey2" = "dashed")) +
-  scale_color_manual(values = c(Pred = pred_color, Pray = pray_color, Res = res_color)) +
+  scale_color_manual(values = c(Pred = pred_color, Pray = pray_color)) +
   theme_minimal()
 }
 
-plot_habitat(20)
+plot_habitat(4)
 #use plot_habitat(x) to plot habitat x
 
 
@@ -515,4 +511,24 @@ end_time <- Sys.time()
 print(end_time - start_time)
 
 #checken ob Prozentuale Verteilung richtig ist
+#sum(py$nlmElement_orig == 0.1)
+#dim(py$nlmElement_orig)
+
+#image(py$nlmElement, useRaster=TRUE, axes=FALSE, col =gray(0:255/255))
+
+sum_pred1 <- 0
+sum_pred2 <- 0
+sum_prey1 <- 0
+sum_prey2 <- 0
+
+l <- 1
+for(i in result){
+  sum_pred1 <- i$Pred1[length(times)] + sum_pred1
+  sum_pred2 <- i$Pred2[length(times)] + sum_pred2
+  sum_prey1 <- i$Prey1[length(times)] + sum_prey1
+  sum_prey2 <- i$Prey2[length(times)] + sum_prey2
+  l <- l +1
+}
+
+barplot(c(sum_pred1,sum_pred2, sum_prey1, sum_prey2))
 
