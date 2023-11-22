@@ -511,6 +511,7 @@ end_time <- Sys.time()
 print(end_time - start_time)
 
 #checken ob Prozentuale Verteilung richtig ist
+<<<<<<< HEAD
 #sum(py$nlmElement_orig == 0.1)
 #dim(py$nlmElement_orig)
 
@@ -532,3 +533,6 @@ for(i in result){
 
 barplot(c(sum_pred1,sum_pred2, sum_prey1, sum_prey2))
 
+=======
+# comment
+>>>>>>> 8d585cee4a26c116f5d38490a1d09dfd62685689
