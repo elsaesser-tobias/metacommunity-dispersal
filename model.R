@@ -13,18 +13,18 @@ library(dplyr);
 #clear enviroment
 rm(list = ls())
 setwd("C:/Users/elsae/Documents/R_Model")
-
-#b will later be used to set different random seeds in each loop
-b <- 14
-#track time
 start_time <- Sys.time()
+#b will later be used to set different random seeds in each loop
+b <- 1
+#track time
+
 #set random seed for reproducibility
 set.seed(b)
 
 #set landscape distribution
-urban_landscape_percent <- 0.8
-forest_landscape_percent <- 0.1
-agriculture_landscape_percent <- 0.1
+urban_landscape_percent <- 0.33
+forest_landscape_percent <- 0.33
+agriculture_landscape_percent <- 0.34
 
 if(urban_landscape_percent + forest_landscape_percent + agriculture_landscape_percent != 1){
   stop("Not 100% of landscape assigned")
@@ -37,11 +37,12 @@ if(urban_landscape_percent + forest_landscape_percent + agriculture_landscape_pe
 OCN_size <- 100
 cellsz <- 100
 #percentage of cells of the OCN that will later be counted as stream, the rest is considered drainage area
-percentage_of_stream_points <- 0.1
+percentage_of_stream_points <- 0.09
 number_of_stream_points <- (OCN_size * OCN_size) * percentage_of_stream_points
 
 #percentage of the stream points that get used as as habitat
-percentage_habitat_points <- 0.02
+#percentage_habitat_points <- 0.02
+nhabitats <- 20
 
 
 #create the optimal channel network -------------------------------------------------------
@@ -96,7 +97,7 @@ RNDN <- OCN$RN$downNode
 
 
 #add habitats ----------------------------------------------------------
-nhabitats <- round(length(RNX) * percentage_habitat_points)
+#nhabitats <- round(length(RNX) * percentage_habitat_points)
 set.seed(b)
 habitat_points <- sample(1:length(RNX), nhabitats)
 
@@ -129,7 +130,38 @@ py_run_file("create_matrix.py")
 
 
 
-image(py$nlmElement, useRaster=TRUE, axes=FALSE, col =gray(0:255/255))
+
+
+#--------------------------------------------------------------------------------------------------------------#
+#create catchment areas from matrix
+# OCN2 <- aggregate_OCN(landscape_OCN(OCN, zMin = 50000), thrA = threshold_area)
+# 
+# draw_simple_OCN(OCN = OCN2, thrADraw = threshold_area2)
+# 
+# 
+# 
+# FD_habitat_points <- OCN$RN$toFD[habitat_points]
+# catchment_areas <- OCN2$RN$upstream[FD_habitat_points]
+# 
+# 
+# stream_amount <- c()
+# agri_amount <- c()
+# for(i in catchment_areas){
+#   a = 1
+# 
+#   for(j in i){
+#     
+#   }
+#   a = a + 1
+# }
+
+
+
+
+
+
+
+#image(py$nlmElement, useRaster=TRUE, axes=FALSE, col =gray(0:255/255))
 
 
 alt <- matrix(OCN$FD$Z, nrow = 100, ncol = 100)
@@ -175,7 +207,8 @@ count_landscape <- function(mat, x, y, r, landscape_type){
   
 }
 
-start_time <- Sys.time()
+
+
 
 urban_radius <- 3000
 agriculture_radius <- 750
@@ -194,8 +227,6 @@ for(i in 1:length(habitatsx)){
 }
 
 
-end_time <- Sys.time()
-print(end_time - start_time)
 
 
 habitat_df <- data.frame(urban3000m.m2 = urban_sums, agriculture750m.m2 = agriculture_sums, forest1000m.m2 = forrest_sums, 
@@ -204,7 +235,7 @@ habitat_df <- data.frame(urban3000m.m2 = urban_sums, agriculture750m.m2 = agricu
 #                     Rhine Valley Pesticides 2022                          #
 #                   Ken Mauser, PhD Project - SystemLink                    #
 #                                                                           #
-#                 Build prediction maps Tobias                              #
+#                 Build prediction maps for Tobias                          #
 #                                                                           #
 #:::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::#
 
@@ -234,7 +265,7 @@ veg <- left_join(x = veg, y = histo_cat[,icol], by = "sample_number")
 # prediction Tobias ------------------------------------------------------------
 
 
-set.seed(1)
+set.seed(b)
 
 pcr1 <- pcr(num ~ alt + 
               forest1000m.m2 +
@@ -360,7 +391,7 @@ parameters <- c(aPred1 = 0.00444,
                 hPred1 = 0.0192,
                 hPred2 = 0.0192,
                 mPred1 = 0.11,
-                mPred2 = 0.1,
+                mPred2 = 0.11,
                 modPred1 = 1,
                 modPred2 = 1,
                 prey1_growth_speed = 0.005,
@@ -375,7 +406,7 @@ parameters <- c(aPred1 = 0.00444,
 
 #create dispersal matrix D----------------------------------------------------------------------------
 
-migration_percent <- 0.4
+migration_percent <- 0.5
 n_habitat_connections <- c()
 D <- matrix(0, nrow = length(habitatsx),ncol = length(habitatsx))
 for(i in 1:length(aim_names)){
@@ -409,7 +440,7 @@ ODE_functions<-function(t, state, parameters) {
               Pred1 * mPred1 + D %*% Pred1
   
   dPred2 <- (((aPred2 * Pred2 * Prey1) / (1 + aPred2 * hPred2 * Prey1)) +
-              ((aPred2 * Pred2 * Prey2) / (1 + aPred2 * hPred2 * Prey2))) * modPred1 -
+              ((aPred2 * Pred2 * Prey2) / (1 + aPred2 * hPred2 * Prey2))) * modPred2 -
               Pred2 * mPred2  + D %*% Pred2
   
   
@@ -507,11 +538,9 @@ plot_habitat(4)
 
 
 #check how long one iteration of the script takes
-end_time <- Sys.time()
-print(end_time - start_time)
+
 
 #checken ob Prozentuale Verteilung richtig ist
-<<<<<<< HEAD
 #sum(py$nlmElement_orig == 0.1)
 #dim(py$nlmElement_orig)
 
@@ -531,8 +560,22 @@ for(i in result){
   l <- l +1
 }
 
-barplot(c(sum_pred1,sum_pred2, sum_prey1, sum_prey2))
 
-=======
-# comment
->>>>>>> 8d585cee4a26c116f5d38490a1d09dfd62685689
+
+
+#points(5000, 5000, pch = 21, col = "blue", cex = 515)
+
+
+png(file=paste("barplot",b,".png", sep =""), width=1000, height=1000, bg = "white")
+
+
+barplot(c(sum_pred1,sum_pred2, sum_prey1, sum_prey2), names.arg = c("Pred1", "Pred2", "Prey1", "Prey2"))
+
+
+dev.off() 
+
+
+
+end_time <- Sys.time()
+print(end_time - start_time)
+
